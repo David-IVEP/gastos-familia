@@ -46,6 +46,37 @@ body{
 .hdr-actions{display:flex;gap:6px;align-items:center;}
 .hdr-btn{background:rgba(255,255,255,0.15);color:#fff;border:none;padding:6px 11px;border-radius:7px;font-size:12px;cursor:pointer;font-family:inherit;display:flex;align-items:center;gap:4px;transition:background 0.15s;}
 .hdr-btn:active{background:rgba(255,255,255,0.25);}
+/* Month picker dropdown */
+.month-picker-wrap{position:relative;}
+.month-picker-btn{background:rgba(255,255,255,0.15);color:#fff;border:none;padding:6px 11px;border-radius:7px;font-size:12px;cursor:pointer;font-family:inherit;display:flex;align-items:center;gap:5px;transition:background 0.15s;white-space:nowrap;}
+.month-picker-btn:active{background:rgba(255,255,255,0.25);}
+.month-dropdown{
+  position:absolute;top:calc(100% + 6px);right:0;
+  background:var(--surface);border-radius:var(--r);
+  border:1px solid var(--border);
+  box-shadow:0 8px 24px rgba(0,0,0,0.14);
+  z-index:300;overflow:hidden;min-width:220px;
+  opacity:0;pointer-events:none;transform:translateY(-6px);
+  transition:opacity 0.18s,transform 0.18s;
+}
+.month-dropdown.open{opacity:1;pointer-events:all;transform:translateY(0);}
+.month-dropdown-head{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:10px 14px;border-bottom:1px solid var(--border);
+}
+.month-dropdown-year{font-size:14px;font-weight:600;color:var(--ink);}
+.year-nav{background:none;border:none;font-size:16px;cursor:pointer;color:var(--ink2);padding:2px 6px;border-radius:5px;transition:background 0.1s;}
+.year-nav:hover{background:var(--surface2);}
+.month-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:4px;padding:10px;}
+.month-opt{
+  padding:8px 4px;text-align:center;border-radius:7px;
+  font-size:12px;font-weight:500;cursor:pointer;color:var(--ink2);
+  border:1px solid transparent;transition:all 0.12s;
+}
+.month-opt:hover{background:var(--surface2);}
+.month-opt.current-month{background:var(--moss);color:#fff;border-color:var(--moss);}
+.month-opt.has-data{color:var(--ink);font-weight:600;}
+.month-opt.future{opacity:0.35;pointer-events:none;}
 .conn-dot{width:7px;height:7px;border-radius:50%;background:#86efac;display:inline-block;flex-shrink:0;}
 .conn-dot.off{background:#fca5a5;}
 
@@ -235,9 +266,19 @@ body{
       </div>
     </div>
     <div class="hdr-actions">
-      <button class="hdr-btn" id="monthBtn">
-        <span id="monthLabel">—</span> ▾
-      </button>
+      <div class="month-picker-wrap" id="monthPickerWrap">
+        <button class="month-picker-btn" id="monthBtn">
+          <span id="monthLabel">—</span> ▾
+        </button>
+        <div class="month-dropdown" id="monthDropdown">
+          <div class="month-dropdown-head">
+            <button class="year-nav" id="yearPrev">‹</button>
+            <span class="month-dropdown-year" id="dropdownYear">2026</span>
+            <button class="year-nav" id="yearNext">›</button>
+          </div>
+          <div class="month-grid" id="monthGrid"></div>
+        </div>
+      </div>
       <button class="hdr-btn" id="configBtn">
         <span class="conn-dot off" id="connDot"></span> ⚙
       </button>
@@ -708,8 +749,68 @@ document.querySelectorAll('[data-gtab]').forEach(el=>el.addEventListener('click'
   el.classList.add('active'); S.gTab=el.dataset.gtab; renderGastos();
 }));
 
-document.getElementById('monthBtn').addEventListener('click',()=>{
-  S.month--; if(S.month<0){S.month=11;S.year--;} renderAll();
+// ═══════════════════════════════════════════════════════════════
+// MONTH PICKER DROPDOWN
+// ═══════════════════════════════════════════════════════════════
+let pickerYear = S.year; // año mostrado en el dropdown (puede diferir de S.year mientras navegas)
+
+function buildMonthGrid(){
+  const now2 = new Date();
+  const curM = now2.getMonth(), curY = now2.getFullYear();
+  const {gastos,ingresos} = getData();
+  // meses con datos
+  const withData = new Set();
+  [...gastos,...ingresos].forEach(e=>withData.add(e.year+'-'+e.month));
+
+  document.getElementById('dropdownYear').textContent = pickerYear;
+  // deshabilitar › si pickerYear >= año actual
+  document.getElementById('yearNext').style.opacity = pickerYear >= curY ? '0.3' : '1';
+  document.getElementById('yearNext').style.pointerEvents = pickerYear >= curY ? 'none' : 'auto';
+
+  document.getElementById('monthGrid').innerHTML = MONTHS_ES.map((m,i)=>{
+    const isFuture = pickerYear > curY || (pickerYear === curY && i > curM);
+    const isSelected = pickerYear === S.year && i === S.month;
+    const hasData = withData.has(pickerYear+'-'+i);
+    let cls = 'month-opt';
+    if(isSelected) cls += ' current-month';
+    else if(hasData) cls += ' has-data';
+    if(isFuture) cls += ' future';
+    return `<div class="${cls}" data-m="${i}" data-y="${pickerYear}">${m}</div>`;
+  }).join('');
+
+  document.querySelectorAll('.month-opt:not(.future)').forEach(el=>{
+    el.addEventListener('click',()=>{
+      S.month = parseInt(el.dataset.m);
+      S.year  = parseInt(el.dataset.y);
+      closeMonthDropdown();
+      renderAll();
+    });
+  });
+}
+
+function openMonthDropdown(){
+  pickerYear = S.year;
+  buildMonthGrid();
+  document.getElementById('monthDropdown').classList.add('open');
+}
+function closeMonthDropdown(){
+  document.getElementById('monthDropdown').classList.remove('open');
+}
+
+document.getElementById('monthBtn').addEventListener('click', e=>{
+  e.stopPropagation();
+  const isOpen = document.getElementById('monthDropdown').classList.contains('open');
+  isOpen ? closeMonthDropdown() : openMonthDropdown();
+});
+document.getElementById('yearPrev').addEventListener('click', e=>{
+  e.stopPropagation(); pickerYear--; buildMonthGrid();
+});
+document.getElementById('yearNext').addEventListener('click', e=>{
+  e.stopPropagation(); pickerYear++; buildMonthGrid();
+});
+// cerrar al clicar fuera
+document.addEventListener('click', e=>{
+  if(!document.getElementById('monthPickerWrap').contains(e.target)) closeMonthDropdown();
 });
 
 // ═══════════════════════════════════════════════════════════════
